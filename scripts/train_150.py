@@ -1,4 +1,4 @@
-# scripts/train_stochastic.py
+# scripts/train_finetune.py
 
 import torch
 import timm
@@ -14,14 +14,15 @@ from torch.amp import autocast, GradScaler
 ROOT_DIR = Path(__file__).resolve().parents[1]
 LEARNING_RATE = 1e-4
 BATCH_SIZE = 64
-EPOCHS = 100
+EPOCHS = 150
 NUM_WORKERS = 16
-PATIENCE = 10  # Reduced patience for a shorter experiment
+SEED = 3685
+PATIENCE = 50  # Early stopping
 
 # Paths
 DATA_PATH = ROOT_DIR / "datasets/frames"
 MODEL_SAVE_PATH = ROOT_DIR / "backend/models"
-LOG_FILE_PATH = ROOT_DIR / "training_log_stochastic.txt"
+LOG_FILE_PATH = ROOT_DIR / "150_training_log_seed_3685.txt"
 MODEL_SAVE_PATH.mkdir(exist_ok=True)
 
 # Logging
@@ -45,9 +46,10 @@ class SmoothBCEwLogits(nn.Module):
 
 # --- Main ---
 def main():
-    # SEED LINES REMOVED FOR STOCHASTIC RUN
+    torch.manual_seed(SEED)
+    torch.cuda.manual_seed_all(SEED)
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    logger.info(f"Starting STOCHASTIC run on device: {device}")
+    logger.info(f"Using device: {device}")
     amp_enabled = (device == "cuda")
 
     # Model
@@ -145,7 +147,8 @@ def main():
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             epochs_no_improve = 0
-            torch.save(model._orig_mod.state_dict(), MODEL_SAVE_PATH / "best_detector_stochastic.pth")
+            # CRITICAL FIX: Save the original, uncompiled model's state dictionary
+            torch.save(model._orig_mod.state_dict(), MODEL_SAVE_PATH / "best_detector.th")
             logger.info(f"✅ New best model saved with validation loss: {best_val_loss:.4f}")
         else:
             epochs_no_improve += 1
@@ -158,8 +161,10 @@ def main():
             logger.info("🔓 Unfreezing backbone for full model fine-tuning...")
             for param in model.parameters():
                 param.requires_grad = True
+            # Re-create optimizer to include newly unfrozen parameters
             optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE / 10, weight_decay=1e-5)
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS - epoch)
+
 
     logger.info("Fine-tuning complete! ✨")
 

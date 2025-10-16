@@ -1,0 +1,5 @@
+2025-10-16 03:41:46,329 - Using device: cuda
+2025-10-16 03:41:46,329 - Setting up XceptionNet for advanced fine-tuning...
+2025-10-16 03:41:46,550 - Loading pretrained weights from url (https://github.com/rwightman/pytorch-image-models/releases/download/v0.1-cadene/xception-43020ad28.pth)
+2025-10-16 03:41:46,784 - Missing keys (fc.weight, fc.bias) discovered while loading pretrained weights. This is expected if model is being adapted.
+2025-10-16 03:41:48,962 - Training images: 32000, Validation images: 8000

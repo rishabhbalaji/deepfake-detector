@@ -1,61 +1,88 @@
-# src/detection/detector.py
+# backend/src/detection/detector.py
+
 import torch
 import timm
 from PIL import Image
 from pathlib import Path
+import logging
 
 # --- Configuration ---
-ROOT_DIR = Path(__file__).resolve().parents[2] # Navigate up to the project root
+ROOT_DIR = Path(__file__).resolve().parents[2]
 MODEL_PATH = ROOT_DIR / "models/best_detector.pth"
+
+# --- Logging Setup ---
+logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
+logger = logging.getLogger(__name__)
+
 
 class EnsembleDetector:
     """
-    A class to encapsulate the deepfake detection logic.
-    It now loads our custom-trained XceptionNet model.
+    Deepfake detector using a fine-tuned XceptionNet model.
+    Optimized for inference performance and stability.
     """
-    def __init__(self):
+    def __init__(self, warmup: bool = False):
         """
-        Initializes the detector and loads the fine-tuned model.
+        Initialize model, transforms, and device.
         """
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"EnsembleDetector initialized. Using device: {self.device}")
+        torch.set_grad_enabled(False)
+        torch.backends.cudnn.benchmark = True  # Speed optimization for consistent input size
+        torch.use_deterministic_algorithms(False)  # For performance; set True for strict reproducibility
 
-        # 1. Create the model architecture (without pre-trained weights)
-        self.model = timm.create_model('xception', pretrained=False, num_classes=1)
-        
-        # 2. Load our custom-trained weights from the .pth file
+        logger.info(f"Initializing EnsembleDetector on device: {self.device}")
+
         if not MODEL_PATH.exists():
             raise FileNotFoundError(f"Model file not found at: {MODEL_PATH}")
-        self.model.load_state_dict(torch.load(MODEL_PATH, map_location=self.device))
-        
-        # 3. Prepare the model for inference
+
+        # Model creation and loading
+        self.model = timm.create_model("xception", pretrained=False, num_classes=1)
+        state_dict = torch.load(MODEL_PATH, map_location=self.device)
+        self.model.load_state_dict(state_dict, strict=True)
         self.model.to(self.device)
         self.model.eval()
 
-        # 4. Get the model-specific transformations
+        # Transform setup
         data_config = timm.data.resolve_model_data_config(self.model)
         self.transforms = timm.data.create_transform(**data_config, is_training=False)
 
+        logger.info(f"Model '{MODEL_PATH.name}' loaded successfully.")
+
+        if warmup and self.device == "cuda":
+            self._warmup_model()
+
+    def _warmup_model(self):
+        """
+        Runs one dummy inference to warm up CUDA kernels.
+        Useful to remove first-inference latency.
+        """
+        dummy = torch.zeros((1, 3, 299, 299), device=self.device)  # Xception input size
+        with torch.inference_mode():
+            _ = self.model(dummy)
+        torch.cuda.synchronize()
+        logger.info("Warm-up completed for CUDA inference.")
+
     def predict(self, image_path: str) -> dict:
         """
-        Predicts if an image is a deepfake using our trained model.
+        Predicts if an image is a deepfake.
+        Returns dict: {"is_deepfake": bool, "confidence": float, "model_used": str}
         """
         try:
             img = Image.open(image_path).convert("RGB")
-            tensor = self.transforms(img).unsqueeze(0).to(self.device)
+            tensor = self.transforms(img).unsqueeze(0).to(self.device, non_blocking=True)
 
-            with torch.no_grad():
+            with torch.inference_mode(), torch.cuda.amp.autocast(enabled=(self.device == "cuda")):
                 output = self.model(tensor)
-                probability = torch.sigmoid(output).item()
+                prob_real = torch.sigmoid(output).item()
 
-            is_deepfake = probability > 0.5
-            confidence = probability if is_deepfake else 1 - probability
+            is_deepfake = prob_real < 0.5
+            confidence = round(1 - prob_real if is_deepfake else prob_real, 4)
 
             return {
                 "is_deepfake": is_deepfake,
-                "confidence": round(confidence, 4),
-                "model_used": str(MODEL_PATH.name)
+                "confidence": confidence,
+                "model_used": MODEL_PATH.name,
             }
+
         except Exception as e:
-            print(f"Error during prediction: {e}")
+            logger.error(f"Prediction error: {e}")
             return {"error": str(e)}
