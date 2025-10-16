@@ -4,90 +4,72 @@ import cv2
 import os
 from pathlib import Path
 from tqdm import tqdm
+import random
 
 # --- Configuration ---
-# Number of frames to extract from each video
 FRAMES_PER_VIDEO = 20
-
-# Root directory of the project
 ROOT_DIR = Path(__file__).resolve().parents[1]
-
-# Source and destination paths
-SOURCE_REAL = ROOT_DIR / "datasets/original_sequences/youtube/c23/videos"
-SOURCE_FAKE = ROOT_DIR / "datasets/manipulated_sequences/Deepfakes/c23/videos"
+SOURCE_REAL_DIR = ROOT_DIR / "datasets/original_sequences/youtube/c23/videos"
+SOURCE_FAKE_DIR = ROOT_DIR / "datasets/manipulated_sequences/Deepfakes/c23/videos"
 DESTINATION_DIR = ROOT_DIR / "datasets/frames"
 
 # --- Main Extraction Logic ---
-def extract_frames(video_path: Path, destination_folder: Path, video_filename: str):
-    """Extracts a fixed number of frames from a single video file."""
-    if not video_path.exists():
-        # print(f"Warning: Video not found at {video_path}")
-        return
-
-    cap = cv2.VideoCapture(str(video_path))
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+def extract_frames_from_dir(source_dir: Path, dest_dir: Path, video_list: list):
+    """Extracts frames from a list of videos from a source directory."""
+    dest_dir.mkdir(parents=True, exist_ok=True)
     
-    # Ensure we can extract frames and avoid division by zero
-    if total_frames < FRAMES_PER_VIDEO or FRAMES_PER_VIDEO == 0:
-        return
-
-    # Calculate which frames to extract to get an even distribution
-    frame_indices = [int(i) for i in (total_frames / FRAMES_PER_VIDEO * n for n in range(FRAMES_PER_VIDEO))]
-    
-    frame_count = 0
-    extracted_count = 0
-    
-    while cap.isOpened() and extracted_count < FRAMES_PER_VIDEO:
-        ret, frame = cap.read()
-        if not ret:
-            break
+    for video_filename_str in tqdm(video_list, desc=f"Extracting to {dest_dir.name}"):
+        video_path = source_dir / video_filename_str
         
-        if frame_count in frame_indices:
-            frame_name = f"{video_filename.stem}_{extracted_count}.jpg"
-            save_path = destination_folder / frame_name
-            cv2.imwrite(str(save_path), frame)
-            extracted_count += 1
+        if not video_path.exists():
+            continue
+
+        cap = cv2.VideoCapture(str(video_path))
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        
+        if total_frames < FRAMES_PER_VIDEO or FRAMES_PER_VIDEO == 0:
+            cap.release()
+            continue
+
+        frame_indices = sorted(random.sample(range(total_frames), FRAMES_PER_VIDEO))
+        
+        frame_idx_ptr = 0
+        frame_count = 0
+        
+        while cap.isOpened() and frame_idx_ptr < len(frame_indices):
+            ret, frame = cap.read()
+            if not ret:
+                break
             
-        frame_count += 1
-        
-    cap.release()
+            if frame_count == frame_indices[frame_idx_ptr]:
+                frame_name = f"{video_path.stem}_{frame_idx_ptr}.jpg"
+                save_path = dest_dir / frame_name
+                cv2.imwrite(str(save_path), frame)
+                frame_idx_ptr += 1
+                
+            frame_count += 1
+            
+        cap.release()
 
 
 if __name__ == "__main__":
     print("Starting frame extraction process...")
     
-    video_files = sorted(os.listdir(SOURCE_REAL))
+    real_videos = sorted(os.listdir(SOURCE_REAL_DIR))
+    fake_videos = sorted(os.listdir(SOURCE_FAKE_DIR))
     
     # We will use an 80/20 split for train/validation
-    split_index = int(len(video_files) * 0.8)
-    train_videos = video_files[:split_index]
-    val_videos = video_files[split_index:]
-    
-    # Define sets for processing
-    sets = {
-        "train": train_videos,
-        "val": val_videos
-    }
+    real_split_idx = int(len(real_videos) * 0.8)
+    fake_split_idx = int(len(fake_videos) * 0.8)
 
-    # Process all videos
-    for set_name, video_list in sets.items():
-        print(f"\nProcessing '{set_name}' set...")
-        
-        # Create destination folders
-        dest_real = DESTINATION_DIR / set_name / "real"
-        dest_fake = DESTINATION_DIR / set_name / "fake"
-        dest_real.mkdir(parents=True, exist_ok=True)
-        dest_fake.mkdir(parents=True, exist_ok=True)
-        
-        for video_filename_str in tqdm(video_list, desc=f"Extracting {set_name} frames"):
-            video_filename = Path(video_filename_str)
-            
-            # Extract from REAL video
-            real_video_path = SOURCE_REAL / video_filename
-            extract_frames(real_video_path, dest_real, video_filename)
-            
-            # Extract from FAKE video
-            fake_video_path = SOURCE_FAKE / video_filename
-            extract_frames(fake_video_path, dest_fake, video_filename)
+    # Process REAL videos
+    print("\n--- Processing REAL videos ---")
+    extract_frames_from_dir(SOURCE_REAL_DIR, DESTINATION_DIR / "train/real", real_videos[:real_split_idx])
+    extract_frames_from_dir(SOURCE_REAL_DIR, DESTINATION_DIR / "val/real", real_videos[real_split_idx:])
+
+    # Process FAKE videos
+    print("\n--- Processing FAKE videos ---")
+    extract_frames_from_dir(SOURCE_FAKE_DIR, DESTINATION_DIR / "train/fake", fake_videos[:fake_split_idx])
+    extract_frames_from_dir(SOURCE_FAKE_DIR, DESTINATION_DIR / "val/fake", fake_videos[fake_split_idx:])
             
     print("\nFrame extraction complete! ✨")
