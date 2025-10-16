@@ -19,3 +19,23 @@ This document tracks the key decisions, procedures, and results throughout the F
 ### 1.3: Model Fine-Tuning (Current Stage)
 - **Base Model:** XceptionNet (pre-trained on ImageNet).
 - **Reasoning:** A powerful CNN architecture proven to be effective for image classification tasks, serving as a strong baseline.
+
+---
+### Log Entry: October 16, 2025
+
+**Analysis of Initial Training Runs (V1, V2, V3):**
+
+Completed three major training experiments to establish a baseline for the XceptionNet detector.
+
+-   **Run 1 (V1):** Basic training, 50 epochs. Best Val Loss: `0.2159`.
+-   **Run 2 (V2):** Optimized with AMP/`torch.compile`, 100 epochs. Best Val Loss: `0.2000`.
+-   **Run 3 (V3):** Extended run, 200 epochs, 16 workers. Best Val Loss: `0.2078`.
+
+**Conclusion:** The model from **Run 2 (`best_detector_v2_88acc.pth`) is the current champion**, achieving the lowest validation loss. The extended 200-epoch run confirmed that peak performance is reached relatively early and becomes unstable in later epochs.
+
+**Next Step: Advanced Fine-Tuning Run (V4):**
+
+Proceeding with a final, advanced fine-tuning experiment (`train_finetune.py`). The objective is to determine if a more sophisticated training strategy can surpass the `0.2000` validation loss benchmark.
+
+-   **Key Techniques:** Label Smoothing, Cosine Annealing LR, Gradual Unfreezing, Early Stopping (`patience=15`).
+-   **Expected Outcome:** A potentially lower validation loss, representing the performance ceiling for this architecture.
