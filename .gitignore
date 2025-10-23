@@ -1,4 +1,31 @@
-temp_uploads/
-datasets/
-*.pyc
+# Python
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environments
+*.env
+.env
+.venv
+venv/
+deepsight/
+
+# Logs - Ignore all log/data files
+*.log
+*.txt
+*.csv
+
+# Data & Temp Files
+# We ignore the entire datasets/ folder, as it's large raw data
+datasets/
+temp_uploads/
+
+# Downloaded Libraries
+# (This assumes GFPGAN is a library you downloaded, not your own code)
+GFPGAN/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
