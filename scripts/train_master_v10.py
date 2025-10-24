@@ -1,8 +1,8 @@
-# scripts/train_master_v8.py
-# This script tests our new hypothesis: a high 1e-3 LR + a scheduler.
-# 1. (NEW) Default LR changed to 1e-3.
-# 2. (REMOVED) All pynvml GPU monitoring code for a cleaner script.
-# 3. (KEPT) All v6 features (resume, grad clip, argparse, F1, etc.)
+# scripts/train_master_v10.py
+# This script tests our Phase 5 hypothesis: AdamW optimizer
+# 1. (NEW) Optimizer changed from optim.Adam to optim.AdamW
+# 2. (NEW) Added weight_decay=1e-2 (effective for AdamW)
+# 3. (KEPT) All v8 features (1e-3 LR, scheduler, no augs, resume, etc.)
 
 import torch
 import timm
@@ -22,7 +22,8 @@ from torchmetrics.classification import BinaryF1Score, BinaryPrecision, BinaryRe
 
 # --- Configuration & Hyperparameters ---
 ROOT_DIR = Path("/home/rbk/deepsight-forensics") # Hardcoded
-LEARNING_RATE = 1e-3  # (NEW) Testing the original, high LR
+LEARNING_RATE = 1e-3  # Keeping our best LR
+WEIGHT_DECAY = 1e-2   # (NEW) Regularization for AdamW
 BATCH_SIZE = 64
 EPOCHS = 100
 NUM_WORKERS = 16
@@ -34,7 +35,7 @@ DEVICE_INDEX = 0
 # --- Paths ---
 DATA_PATH = ROOT_DIR / "datasets/frames"
 MODEL_SAVE_PATH = ROOT_DIR / "backend/models"
-LOG_FILE_PATH = ROOT_DIR / "training_log_master_v8.txt" # New log file
+LOG_FILE_PATH = ROOT_DIR / "training_log_master_v10.txt" # New log file
 LAST_CKPT_PATH = MODEL_SAVE_PATH / "last_checkpoint.pth"
 
 # --- Set up Logging ---
@@ -66,12 +67,11 @@ def main(args):
     amp_enabled = (device != "cpu")
     amp_dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
     
-    main_logger.info(f"--- DeepSight Master v8 Training Run ---")
-    main_logger.info(f"HYPOTHESIS: 1e-3 LR + CosineAnnealingLR scheduler")
+    main_logger.info(f"--- DeepSight Master v10 Training Run ---")
+    main_logger.info(f"HYPOTHESIS: AdamW Optimizer (LR={args.lr}, WD={args.weight_decay})")
     main_logger.info(f"Using device: {device}")
     main_logger.info(f"AMP enabled: {amp_enabled} | AMP dtype: {amp_dtype}")
     main_logger.info(f"Num workers: {args.num_workers} | Batch size: {args.batch_size}")
-    main_logger.info(f"Learning rate: {args.lr}")
 
     # --- 2. Model & Config Setup ---
     main_logger.info("Setting up XceptionNet model...")
@@ -79,6 +79,7 @@ def main(args):
     model.to(device)
     model = torch.compile(model)
 
+    # (Back to v8) Use the simple timm transforms
     data_config = timm.data.resolve_model_data_config(model)
     data_transform = timm.data.create_transform(**data_config, is_training=True)
     val_transform = timm.data.create_transform(**data_config, is_training=False)
@@ -104,7 +105,8 @@ def main(args):
 
     # --- 4. Optimizer, Loss, Scaler, and Scheduler ---
     loss_fn = nn.BCEWithLogitsLoss()
-    optimizer = optim.Adam(model.parameters(), lr=args.lr) # Uses the new 1e-3 default
+    # (NEW) Switched to AdamW and added weight_decay
+    optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scaler = GradScaler(enabled=amp_enabled)
     scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=1e-6)
 
@@ -229,19 +231,20 @@ def main(args):
             main_logger.warning("No epoch data to save.")
             
     finally:
-        # GPU monitoring is gone, no finally block needed for it
         pass
 
     main_logger.info(f"\nTraining complete! Best validation loss: {best_val_loss:.4f} ✨")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="DeepSight Master Training Script v8")
+    parser = argparse.ArgumentParser(description="DeepSight Master Training Script v10 (AdamW)")
     
     parser.add_argument('--resume', action='store_true',
                         help='Resume training from the last checkpoint')
     parser.add_argument('--lr', type=float, default=LEARNING_RATE,
                         help='Initial learning rate')
+    parser.add_argument('--weight-decay', type=float, default=WEIGHT_DECAY,
+                        help='Weight decay (for AdamW)')
     parser.add_argument('--batch-size', type=int, default=BATCH_SIZE,
                         help='Training batch size')
     parser.add_argument('--epochs', type=int, default=EPOCHS,
