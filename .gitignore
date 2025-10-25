@@ -23,7 +23,7 @@ temp_uploads/
 
 # Downloaded Libraries
 # (This assumes GFPGAN is a library you downloaded, not your own code)
-GFPGAN/
+GFPGAN/*
 
 # IDE / OS
 .vscode/
