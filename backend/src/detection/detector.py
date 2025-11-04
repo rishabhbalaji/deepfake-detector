@@ -7,8 +7,10 @@ from pathlib import Path
 import logging
 
 # --- Configuration ---
-ROOT_DIR = Path(__file__).resolve().parents[2]
-MODEL_PATH = ROOT_DIR / "models/best_detector.pth"
+# NOTE: Using the robust absolute path based on user input to avoid Celery environment issues
+# The original logic (ROOT_DIR = Path(__file__).resolve().parents[2]) is complex and prone to errors.
+# We are using the confirmed path for maximum stability in the worker environment.
+MODEL_PATH = Path("/home/rbk/deepsight-forensics/backend/models/best_detector.pth")
 
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
@@ -36,8 +38,22 @@ class EnsembleDetector:
 
         # Model creation and loading
         self.model = timm.create_model("xception", pretrained=False, num_classes=1)
+        
+        # Load the state dictionary
         state_dict = torch.load(MODEL_PATH, map_location=self.device)
-        self.model.load_state_dict(state_dict, strict=True)
+        
+        # --- FIX: Clean state dictionary keys for models saved with DataParallel/Compile wrappers ---
+        cleaned_state_dict = {}
+        for k, v in state_dict.items():
+            # Strip common prefixes like '_orig_mod.' or 'module.'
+            if k.startswith('module.') or k.startswith('_orig_mod.'):
+                cleaned_key = k.replace('_orig_mod.', '').replace('module.', '')
+            else:
+                cleaned_key = k
+            cleaned_state_dict[cleaned_key] = v
+        # -----------------------------------------------------------------------------------------
+
+        self.model.load_state_dict(cleaned_state_dict, strict=True)
         self.model.to(self.device)
         self.model.eval()
 
